@@ -1,4 +1,5 @@
 import os
+import re
 
 import pymupdf
 import pymupdf.layout  # activate PyMuPDF-Layout in pymupdf
@@ -16,6 +17,20 @@ st.set_page_config(
 )
 
 
+def fix_bold_symbol_issue(md: str) -> str:
+    pattern = re.compile(r"\*\*(.+?)\*\*(\s*)", re.DOTALL)
+
+    def repl(m):
+        inner = m.group(1)
+        after = m.group(2)
+        # Add space after ** if content contains symbols and no space exists
+        if re.search(r"[^0-9A-Za-z\s]", inner) and after == "":
+            return f"**{inner}** "
+        return m.group(0)
+
+    return pattern.sub(repl, md)
+
+
 @st.cache_resource
 def get_gemini_client():
     api_key = os.getenv("GEMINI_API_KEY")
@@ -28,6 +43,48 @@ def get_gemini_client():
 @st.dialog(title="Page Summary", width="large")
 def summary_dialog(text):
     st.markdown(text)
+
+
+@st.dialog(title="Chat with Page", width="large")
+def chat_dialog(page_index, text):
+    if "chat_histories" not in st.session_state:
+        st.session_state.chat_histories = {}
+
+    if page_index not in st.session_state.chat_histories:
+        st.session_state.chat_histories[page_index] = []
+
+    for message in st.session_state.chat_histories[page_index]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("Ask something about this page..."):
+        st.session_state.chat_histories[page_index].append(
+            {"role": "user", "content": prompt}
+        )
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            client = get_gemini_client()
+            if client:
+                history_context = ""
+                for msg in st.session_state.chat_histories[page_index][:-1]:
+                    history_context += f"{msg['role']}: {msg['content']}\n"
+
+                full_prompt = f"Context:\n{text}\n\nChat History:\n{history_context}\nUser: {prompt}\nAnswer:"
+
+                with st.spinner("Thinking..."):
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-flash-lite-latest", contents=full_prompt
+                        )
+                        fixed_text = fix_bold_symbol_issue(response.text)
+                        st.markdown(fixed_text)
+                        st.session_state.chat_histories[page_index].append(
+                            {"role": "assistant", "content": fixed_text}
+                        )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
 
 
 @st.dialog(title="Table of Contents")
@@ -55,7 +112,7 @@ def summarize_page(text):
         response = client.models.generate_content(
             model="gemini-flash-lite-latest", contents=prompt + text
         )
-        return response.text
+        return fix_bold_symbol_issue(response.text)
     except Exception as e:
         st.error(f"Gemini API Error: {e}")
         return None
@@ -73,6 +130,8 @@ def initialize_state():
         st.session_state.uploaded_file_name = None
     if "toc" not in st.session_state:
         st.session_state.toc = []
+    if "chat_histories" not in st.session_state:
+        st.session_state.chat_histories = {}
 
 
 def reset_state():
@@ -82,6 +141,7 @@ def reset_state():
     st.session_state.total_pages = 0
     st.session_state.uploaded_file_name = None
     st.session_state.toc = []
+    st.session_state.chat_histories = {}
 
 
 def main():
@@ -187,6 +247,9 @@ def main():
                 summary = summarize_page(current_page_text)
                 if summary:
                     summary_dialog(summary)
+
+        if st.sidebar.button("Chat with Page", width="stretch"):
+            chat_dialog(current_page_index, current_page_text)
 
         # --- Side-by-Side Display ---
         pdf_container = None

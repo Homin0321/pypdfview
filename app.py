@@ -299,13 +299,27 @@ def main():
 
         current_page_text = st.session_state.pages[current_page_index]["text"]
 
-        if st.sidebar.button("Summarize Page", width="stretch"):
+        if st.sidebar.button("Summarize All", width="stretch"):
+            with st.spinner("Summarizing..."):
+                all_indices = list(range(total_pages))
+                ensure_pages_loaded(uploaded_file.getvalue(), all_indices)
+
+                full_text = ""
+                for idx in all_indices:
+                    page_text = st.session_state.pages.get(idx, {}).get("text", "")
+                    full_text += f"--- Page {idx + 1} ---\n{page_text}\n\n"
+
+                summary = summarize_page(full_text)
+                if summary:
+                    summary_dialog(summary)
+
+        if st.sidebar.button("Summarize This Page", width="stretch"):
             with st.spinner("Summarizing..."):
                 summary = summarize_page(current_page_text)
                 if summary:
                     summary_dialog(summary)
 
-        if st.sidebar.button("Chat with Page", width="stretch"):
+        if st.sidebar.button("Chat with Gemini", width="stretch"):
             chat_dialog(current_page_index, total_pages, uploaded_file.getvalue())
 
         # --- Side-by-Side Display ---

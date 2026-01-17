@@ -1,5 +1,6 @@
 streamlit
 pymupdf4llm
+pymupdf-layout
 pymupdf
 streamlit-pdf-viewer
 google-genai

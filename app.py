@@ -11,7 +11,7 @@ from streamlit_pdf_viewer import pdf_viewer
 
 # Set page configuration - this should be the first Streamlit command
 st.set_page_config(
-    page_title="PDF to Markdown Converter",
+    page_title="AI PDF Viewer",
     page_icon="📄",
     layout="wide",
 )
@@ -45,20 +45,96 @@ def summary_dialog(text):
     st.markdown(text)
 
 
+def ensure_pages_loaded(pdf_stream, page_indices):
+    indices_to_load = [idx for idx in page_indices if idx not in st.session_state.pages]
+
+    if indices_to_load:
+        with st.spinner(
+            f"Loading pages {min(indices_to_load) + 1}-{max(indices_to_load) + 1}..."
+        ):
+            try:
+                doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
+                indices_to_load.sort()
+                page_data_list = pymupdf4llm.to_markdown(
+                    doc,
+                    pages=indices_to_load,
+                    page_chunks=True,
+                )
+                for i, page_data in enumerate(page_data_list):
+                    real_idx = indices_to_load[i]
+                    st.session_state.pages[real_idx] = page_data
+                doc.close()
+            except Exception as e:
+                st.error(f"Error loading pages: {e}")
+                for idx in indices_to_load:
+                    if idx not in st.session_state.pages:
+                        st.session_state.pages[idx] = {"text": "Error loading page."}
+
+
 @st.dialog(title="Chat with Page", width="large")
-def chat_dialog(page_index, text):
+def chat_dialog(current_page_index, total_pages, pdf_stream):
+    col1, col2, col3 = st.columns([1, 1, 1], vertical_alignment="bottom")
+    with col1:
+        start_page = st.number_input(
+            "Start Page",
+            min_value=1,
+            max_value=total_pages,
+            value=current_page_index + 1,
+            step=1,
+            key="chat_start_page",
+        )
+    with col2:
+        end_page = st.number_input(
+            "End Page",
+            min_value=1,
+            max_value=total_pages,
+            value=current_page_index + 1,
+            step=1,
+            key="chat_end_page",
+        )
+    with col3:
+        clear_clicked = st.button("Clear Chat History", width="stretch")
+
+    if start_page is None or end_page is None:
+        return
+
+    start_page = int(start_page)
+    end_page = int(end_page)
+
+    if start_page > end_page:
+        st.error("Start page must be less than or equal to end page.")
+        return
+
+    selected_indices = list(range(start_page - 1, end_page))
+    ensure_pages_loaded(pdf_stream, selected_indices)
+
+    context_text = ""
+    for idx in selected_indices:
+        page_text = st.session_state.pages.get(idx, {}).get("text", "")
+        context_text += f"--- Page {idx + 1} ---\n{page_text}\n\n"
+
+    # Use integer key for single page to maintain backward compatibility
+    if len(selected_indices) == 1:
+        chat_key = selected_indices[0]
+    else:
+        chat_key = f"{selected_indices[0]}-{selected_indices[-1]}"
+
     if "chat_histories" not in st.session_state:
         st.session_state.chat_histories = {}
 
-    if page_index not in st.session_state.chat_histories:
-        st.session_state.chat_histories[page_index] = []
+    if chat_key not in st.session_state.chat_histories:
+        st.session_state.chat_histories[chat_key] = []
 
-    for message in st.session_state.chat_histories[page_index]:
+    if clear_clicked:
+        st.session_state.chat_histories[chat_key] = []
+        st.rerun()
+
+    for message in st.session_state.chat_histories[chat_key]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if prompt := st.chat_input("Ask something about this page..."):
-        st.session_state.chat_histories[page_index].append(
+    if prompt := st.chat_input("Ask something about these pages..."):
+        st.session_state.chat_histories[chat_key].append(
             {"role": "user", "content": prompt}
         )
         with st.chat_message("user"):
@@ -68,10 +144,10 @@ def chat_dialog(page_index, text):
             client = get_gemini_client()
             if client:
                 history_context = ""
-                for msg in st.session_state.chat_histories[page_index][:-1]:
+                for msg in st.session_state.chat_histories[chat_key][:-1]:
                     history_context += f"{msg['role']}: {msg['content']}\n"
 
-                full_prompt = f"Context:\n{text}\n\nChat History:\n{history_context}\nUser: {prompt}\nAnswer:"
+                full_prompt = f"Context:\n{context_text}\n\nChat History:\n{history_context}\nUser: {prompt}\nAnswer:"
 
                 with st.spinner("Thinking..."):
                     try:
@@ -80,7 +156,7 @@ def chat_dialog(page_index, text):
                         )
                         fixed_text = fix_bold_symbol_issue(response.text)
                         st.markdown(fixed_text)
-                        st.session_state.chat_histories[page_index].append(
+                        st.session_state.chat_histories[chat_key].append(
                             {"role": "assistant", "content": fixed_text}
                         )
                     except Exception as e:
@@ -190,27 +266,8 @@ def main():
             st.session_state.current_page = total_pages - 1
             current_page_index = total_pages - 1
 
-        # Check if current page text is loaded
-        if current_page_index not in st.session_state.pages:
-            with st.spinner(f"Converting page {current_page_index + 1}..."):
-                try:
-                    doc = pymupdf.open(stream=uploaded_file.getvalue(), filetype="pdf")
-                    # Use page_chunks=True to get a list of page data dictionaries
-                    page_data_list = pymupdf4llm.to_markdown(
-                        doc,
-                        pages=[current_page_index],
-                        page_chunks=True,  # This activates the page-chunking feature
-                    )
-                    if page_data_list:
-                        st.session_state.pages[current_page_index] = page_data_list[0]
-                    else:
-                        st.session_state.pages[current_page_index] = {"text": ""}
-                    doc.close()
-                except Exception as e:
-                    st.error(f"Error converting page: {e}")
-                    st.session_state.pages[current_page_index] = {
-                        "text": "Error loading page."
-                    }
+        # Ensure current page is loaded
+        ensure_pages_loaded(uploaded_file.getvalue(), [current_page_index])
 
         # --- Navigation controls in the sidebar ---
         # Page jump input
@@ -249,7 +306,7 @@ def main():
                     summary_dialog(summary)
 
         if st.sidebar.button("Chat with Page", width="stretch"):
-            chat_dialog(current_page_index, current_page_text)
+            chat_dialog(current_page_index, total_pages, uploaded_file.getvalue())
 
         # --- Side-by-Side Display ---
         pdf_container = None

@@ -7,7 +7,6 @@ This project is a Streamlit application that converts PDF files into Markdown fo
 *   **PDF Upload:** Upload PDF files directly through the Streamlit interface.
 *   **Side-by-Side View:** View the original PDF page alongside its converted Markdown content.
 *   **Page Navigation:** Easily navigate through the pages of the PDF.
-*   **Markdown Download:** Download the complete converted Markdown content as a `.md` file.
 *   **Summary Generation:** Generate a concise summary of the PDF content using Google Gemini.
 
 ## Setup and Installation
@@ -44,7 +43,7 @@ This project is a Streamlit application that converts PDF files into Markdown fo
 
 2.  Open your web browser and navigate to the URL provided by Streamlit (usually `http://localhost:8501`).
 
-3.  Use the sidebar to upload a PDF file. The application will automatically convert it to Markdown and display the content. You can then navigate through pages and download the `.md` file.
+3.  Use the sidebar to upload a PDF file. The application will automatically convert it to Markdown and display the content.
 
 ## Dependencies
 

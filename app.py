@@ -58,6 +58,8 @@ def ensure_pages_loaded(pdf_stream, page_indices):
                 page_data_list = pymupdf4llm.to_markdown(
                     doc,
                     pages=indices_to_load,
+                    header=False,
+                    footer=False,
                     page_chunks=True,
                 )
                 for i, page_data in enumerate(page_data_list):
@@ -111,7 +113,7 @@ def chat_dialog(current_page_index, total_pages, pdf_stream):
     context_text = ""
     for idx in selected_indices:
         page_text = st.session_state.pages.get(idx, {}).get("text", "")
-        context_text += f"--- Page {idx + 1} ---\n{page_text}\n\n"
+        context_text += f"{page_text}\n\n"
 
     # Use integer key for single page to maintain backward compatibility
     if len(selected_indices) == 1:
@@ -307,7 +309,7 @@ def main():
                 full_text = ""
                 for idx in all_indices:
                     page_text = st.session_state.pages.get(idx, {}).get("text", "")
-                    full_text += f"--- Page {idx + 1} ---\n{page_text}\n\n"
+                    full_text += f"{page_text}\n\n"
 
                 summary = summarize_page(full_text)
                 if summary:
@@ -321,6 +323,29 @@ def main():
 
         if st.sidebar.button("Chat with Gemini", width="stretch"):
             chat_dialog(current_page_index, total_pages, uploaded_file.getvalue())
+
+        # Check if all pages are loaded
+        all_pages_loaded = len(st.session_state.pages) == total_pages
+
+        if all_pages_loaded:
+            full_text = ""
+            for idx in range(total_pages):
+                page_text = st.session_state.pages.get(idx, {}).get("text", "")
+                full_text += f"{page_text}\n\n"
+
+            st.sidebar.download_button(
+                label="Download Markdown",
+                data=full_text,
+                file_name=f"{os.path.splitext(uploaded_file.name)[0]}.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+        else:
+            if st.sidebar.button("Download Markdown", width="stretch"):
+                with st.spinner("Loading all pages..."):
+                    all_indices = list(range(total_pages))
+                    ensure_pages_loaded(uploaded_file.getvalue(), all_indices)
+                st.rerun()
 
         # --- Side-by-Side Display ---
         pdf_container = None

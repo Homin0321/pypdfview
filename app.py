@@ -17,7 +17,8 @@ st.set_page_config(
 )
 
 
-def fix_bold_symbol_issue(md: str) -> str:
+def fix_markdown_symbol_issue(md: str) -> str:
+    md = md.replace("$", "\\$").replace("~", "\\~")
     pattern = re.compile(r"\*\*(.+?)\*\*(\s*)", re.DOTALL)
 
     def repl(m):
@@ -156,7 +157,7 @@ def chat_dialog(current_page_index, total_pages, pdf_stream):
                         response = client.models.generate_content(
                             model="gemini-flash-lite-latest", contents=full_prompt
                         )
-                        fixed_text = fix_bold_symbol_issue(response.text)
+                        fixed_text = fix_markdown_symbol_issue(response.text)
                         st.markdown(fixed_text)
                         st.session_state.chat_histories[chat_key].append(
                             {"role": "assistant", "content": fixed_text}
@@ -190,7 +191,7 @@ def summarize_page(text):
         response = client.models.generate_content(
             model="gemini-flash-lite-latest", contents=prompt + text
         )
-        return fix_bold_symbol_issue(response.text)
+        return fix_markdown_symbol_issue(response.text)
     except Exception as e:
         st.error(f"Gemini API Error: {e}")
         return None

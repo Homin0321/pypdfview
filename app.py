@@ -43,7 +43,7 @@ def get_gemini_client():
 
 @st.dialog(title="Summarize Pages", width="large")
 def summary_dialog(current_page_index, total_pages, pdf_stream):
-    col1, col2, col3 = st.columns([1, 1, 1], vertical_alignment="bottom")
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1], vertical_alignment="bottom")
     with col1:
         start_page = st.number_input(
             "Start Page",
@@ -63,7 +63,16 @@ def summary_dialog(current_page_index, total_pages, pdf_stream):
             key="sum_end_page",
         )
     with col3:
-        translate_to_korean = st.checkbox("Translate to Korean", key="sum_translate")
+        detail_level = st.select_slider(
+            "Detail Level",
+            options=["Brief", "Default", "Detailed"],
+            value="Default",
+            key="sum_detail",
+        )
+    with col4:
+        translate_to_korean = st.checkbox(
+            "Translate to Korean", value=True, key="sum_translate"
+        )
 
     if st.button("Generate Summary", width="stretch"):
         start_page = int(start_page)
@@ -82,7 +91,7 @@ def summary_dialog(current_page_index, total_pages, pdf_stream):
             full_text += f"{page_text}\n\n"
 
         with st.spinner("Summarizing..."):
-            summary = summarize_page(full_text, translate_to_korean)
+            summary = summarize_page(full_text, detail_level, translate_to_korean)
             if summary:
                 st.markdown(summary)
 
@@ -222,15 +231,22 @@ def toc_dialog():
                 st.rerun()
 
 
-def summarize_page(text, translate_to_korean=False):
+def summarize_page(text, detail_level="Default", translate_to_korean=False):
     client = get_gemini_client()
     if not client:
         return None
 
-    if translate_to_korean:
-        prompt = "Analyze the following text and provide a piece of organized summary in Korean: "
+    if detail_level == "Brief":
+        instruction = "provide a summary focused on core points"
+    elif detail_level == "Detailed":
+        instruction = "provide a detailed summary"
     else:
-        prompt = "Analyze the following text and provide a piece of organized summary: "
+        instruction = "provide an organized summary"
+
+    if translate_to_korean:
+        prompt = f"Analyze the following text and {instruction} in Korean: "
+    else:
+        prompt = f"Analyze the following text and {instruction}: "
 
     try:
         response = client.models.generate_content(

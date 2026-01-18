@@ -292,7 +292,7 @@ def main():
         )
 
         # --- Layout controls in the sidebar ---
-        ratio_options = ["2:0", "1.5:0.5", "1:1", "0.5:1.5", "0:2"]
+        ratio_options = ["0:2", "0.5:1.5", "1:1", "1.5:0.5", "2:0"]
         selected_ratio = st.sidebar.select_slider(
             "Width Ratio (PDF : Markdown)", options=ratio_options, value="1:1"
         )

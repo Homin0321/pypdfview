@@ -41,9 +41,50 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-@st.dialog(title="Page Summary", width="large")
-def summary_dialog(text):
-    st.markdown(text)
+@st.dialog(title="Summarize Pages", width="large")
+def summary_dialog(current_page_index, total_pages, pdf_stream):
+    col1, col2, col3 = st.columns([1, 1, 1], vertical_alignment="bottom")
+    with col1:
+        start_page = st.number_input(
+            "Start Page",
+            min_value=1,
+            max_value=total_pages,
+            value=current_page_index + 1,
+            step=1,
+            key="sum_start_page",
+        )
+    with col2:
+        end_page = st.number_input(
+            "End Page",
+            min_value=1,
+            max_value=total_pages,
+            value=current_page_index + 1,
+            step=1,
+            key="sum_end_page",
+        )
+    with col3:
+        translate_to_korean = st.checkbox("Translate to Korean", key="sum_translate")
+
+    if st.button("Generate Summary", width="stretch"):
+        start_page = int(start_page)
+        end_page = int(end_page)
+
+        if start_page > end_page:
+            st.error("Start page must be less than or equal to end page.")
+            return
+
+        selected_indices = list(range(start_page - 1, end_page))
+        ensure_pages_loaded(pdf_stream, selected_indices)
+
+        full_text = ""
+        for idx in selected_indices:
+            page_text = st.session_state.pages.get(idx, {}).get("text", "")
+            full_text += f"{page_text}\n\n"
+
+        with st.spinner("Summarizing..."):
+            summary = summarize_page(full_text, translate_to_korean)
+            if summary:
+                st.markdown(summary)
 
 
 def ensure_pages_loaded(pdf_stream, page_indices):
@@ -181,12 +222,16 @@ def toc_dialog():
                 st.rerun()
 
 
-def summarize_page(text):
+def summarize_page(text, translate_to_korean=False):
     client = get_gemini_client()
     if not client:
         return None
 
-    prompt = "Analyze the following text and provide a piece of organized summary: "
+    if translate_to_korean:
+        prompt = "Analyze the following text and provide a piece of organized summary in Korean: "
+    else:
+        prompt = "Analyze the following text and provide a piece of organized summary: "
+
     try:
         response = client.models.generate_content(
             model="gemini-flash-lite-latest", contents=prompt + text
@@ -302,27 +347,10 @@ def main():
 
         current_page_text = st.session_state.pages[current_page_index]["text"]
 
-        if st.sidebar.button("Summarize All", width="stretch"):
-            with st.spinner("Summarizing..."):
-                all_indices = list(range(total_pages))
-                ensure_pages_loaded(uploaded_file.getvalue(), all_indices)
+        if st.sidebar.button("Summarize", width="stretch"):
+            summary_dialog(current_page_index, total_pages, uploaded_file.getvalue())
 
-                full_text = ""
-                for idx in all_indices:
-                    page_text = st.session_state.pages.get(idx, {}).get("text", "")
-                    full_text += f"{page_text}\n\n"
-
-                summary = summarize_page(full_text)
-                if summary:
-                    summary_dialog(summary)
-
-        if st.sidebar.button("Summarize This Page", width="stretch"):
-            with st.spinner("Summarizing..."):
-                summary = summarize_page(current_page_text)
-                if summary:
-                    summary_dialog(summary)
-
-        if st.sidebar.button("Chat with Gemini", width="stretch"):
+        if st.sidebar.button("Chat with AI", width="stretch"):
             chat_dialog(current_page_index, total_pages, uploaded_file.getvalue())
 
         # Check if all pages are loaded

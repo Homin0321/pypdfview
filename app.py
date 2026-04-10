@@ -35,6 +35,73 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
+@st.dialog(title="Summarize Chapter", width="large")
+def chapter_summary_dialog(total_pages, pdf_stream):
+    toc = st.session_state.get("toc", [])
+    if not toc:
+        st.error("No Table of Contents found in this PDF.")
+        return
+
+    chapter_options = []
+    for i, item in enumerate(toc):
+        lvl, title, page = item[0], item[1], item[2]
+        prefix = "—" * (lvl - 1)
+        chapter_options.append(f"{prefix} {title} (p. {page})")
+
+    col_sel, col_range = st.columns([3, 1], vertical_alignment="bottom")
+
+    with col_sel:
+        selected_idx = st.selectbox(
+            "Select Chapter",
+            range(len(chapter_options)),
+            format_func=lambda i: chapter_options[i],
+            key="sum_chap_select",
+        )
+
+    # Calculate page range for the selected chapter
+    start_page = toc[selected_idx][2]
+    level = toc[selected_idx][0]
+
+    end_page = total_pages
+    for i in range(selected_idx + 1, len(toc)):
+        if toc[i][0] <= level:
+            end_page = toc[i][2] - 1
+            break
+
+    if start_page > end_page:
+        end_page = start_page
+
+    with col_range:
+        st.info(f"Page: {start_page} - {end_page}")
+
+    col1, col2 = st.columns([1, 1], vertical_alignment="bottom")
+    with col1:
+        detail_level = st.select_slider(
+            "Detail Level",
+            options=["Brief", "Default", "Detailed"],
+            value="Default",
+            key="sum_chap_detail",
+        )
+    with col2:
+        translate_to_korean = st.checkbox(
+            "Translate to Korean", value=True, key="sum_chap_translate"
+        )
+
+    if st.button("Generate Summary", width="stretch", key="sum_chap_btn"):
+        selected_indices = list(range(start_page - 1, end_page))
+        ensure_pages_loaded(pdf_stream, selected_indices)
+
+        full_text = ""
+        for idx in selected_indices:
+            page_text = st.session_state.pages.get(idx, {}).get("text", "")
+            full_text += f"{page_text}\n\n"
+
+        with st.spinner("Summarizing chapter..."):
+            summary = summarize_page(full_text, detail_level, translate_to_korean)
+            if summary:
+                st.markdown(summary)
+
+
 @st.dialog(title="Summarize Pages", width="large")
 def summary_dialog(current_page_index, total_pages, pdf_stream):
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1], vertical_alignment="bottom")
@@ -357,7 +424,10 @@ def main():
 
         current_page_text = st.session_state.pages[current_page_index]["text"]
 
-        if st.sidebar.button("Summarize", width="stretch"):
+        if st.sidebar.button("Summarize Chapter", width="stretch"):
+            chapter_summary_dialog(total_pages, uploaded_file.getvalue())
+
+        if st.sidebar.button("Summarize Pages", width="stretch"):
             summary_dialog(current_page_index, total_pages, uploaded_file.getvalue())
 
         if st.sidebar.button("Chat with AI", width="stretch"):

@@ -87,24 +87,39 @@ def chapter_summary_dialog(total_pages, pdf_stream):
             "Translate to Korean", value=True, key="sum_chap_translate"
         )
 
-    if st.button("Generate Summary", width="stretch", key="sum_chap_btn"):
+    tab1, tab2 = st.tabs(["Summary", "Chat"])
+
+    with tab1:
+        summary_key = f"chap_sum_{selected_idx}_{detail_level}_{translate_to_korean}"
+
+        if st.button("Generate Summary", width="stretch", key="sum_chap_btn"):
+            selected_indices = list(range(start_page - 1, end_page))
+            ensure_pages_loaded(pdf_stream, selected_indices)
+
+            full_text = ""
+            for idx in selected_indices:
+                page_text = st.session_state.pages.get(idx, {}).get("text", "")
+                full_text += f"{page_text}\n\n"
+
+            chapter_title = toc[selected_idx][1]
+            context_info = f"{chapter_title} (Pages {start_page}-{end_page})"
+
+            with st.spinner("Summarizing chapter..."):
+                summary = summarize_page(
+                    full_text,
+                    detail_level,
+                    translate_to_korean,
+                    context_info=context_info,
+                )
+                if summary:
+                    st.session_state[summary_key] = summary
+
+        if summary_key in st.session_state:
+            st.markdown(st.session_state[summary_key])
+
+    with tab2:
         selected_indices = list(range(start_page - 1, end_page))
-        ensure_pages_loaded(pdf_stream, selected_indices)
-
-        full_text = ""
-        for idx in selected_indices:
-            page_text = st.session_state.pages.get(idx, {}).get("text", "")
-            full_text += f"{page_text}\n\n"
-
-        chapter_title = toc[selected_idx][1]
-        context_info = f"{chapter_title} (Pages {start_page}-{end_page})"
-
-        with st.spinner("Summarizing chapter..."):
-            summary = summarize_page(
-                full_text, detail_level, translate_to_korean, context_info=context_info
-            )
-            if summary:
-                st.markdown(summary)
+        chat_ui(selected_indices, pdf_stream, key_prefix="chap_chat")
 
 
 @st.dialog(title="Summarize Pages", width="large")
@@ -140,26 +155,44 @@ def summary_dialog(current_page_index, total_pages, pdf_stream):
             "Translate to Korean", value=True, key="sum_translate"
         )
 
-    if st.button("Generate Summary", width="stretch"):
-        start_page = int(start_page)
-        end_page = int(end_page)
+    start_page = int(start_page)
+    end_page = int(end_page)
 
-        if start_page > end_page:
+    tab1, tab2 = st.tabs(["Summary", "Chat"])
+
+    with tab1:
+        summary_key = (
+            f"page_sum_{start_page}_{end_page}_{detail_level}_{translate_to_korean}"
+        )
+
+        if st.button("Generate Summary", width="stretch"):
+            if start_page > end_page:
+                st.error("Start page must be less than or equal to end page.")
+            else:
+                selected_indices = list(range(start_page - 1, end_page))
+                ensure_pages_loaded(pdf_stream, selected_indices)
+
+                full_text = ""
+                for idx in selected_indices:
+                    page_text = st.session_state.pages.get(idx, {}).get("text", "")
+                    full_text += f"{page_text}\n\n"
+
+                with st.spinner("Summarizing..."):
+                    summary = summarize_page(
+                        full_text, detail_level, translate_to_korean
+                    )
+                    if summary:
+                        st.session_state[summary_key] = summary
+
+        if summary_key in st.session_state:
+            st.markdown(st.session_state[summary_key])
+
+    with tab2:
+        if start_page <= end_page:
+            selected_indices = list(range(start_page - 1, end_page))
+            chat_ui(selected_indices, pdf_stream, key_prefix="page_chat")
+        else:
             st.error("Start page must be less than or equal to end page.")
-            return
-
-        selected_indices = list(range(start_page - 1, end_page))
-        ensure_pages_loaded(pdf_stream, selected_indices)
-
-        full_text = ""
-        for idx in selected_indices:
-            page_text = st.session_state.pages.get(idx, {}).get("text", "")
-            full_text += f"{page_text}\n\n"
-
-        with st.spinner("Summarizing..."):
-            summary = summarize_page(full_text, detail_level, translate_to_korean)
-            if summary:
-                st.markdown(summary)
 
 
 def ensure_pages_loaded(pdf_stream, page_indices):
@@ -190,41 +223,11 @@ def ensure_pages_loaded(pdf_stream, page_indices):
                         st.session_state.pages[idx] = {"text": "Error loading page."}
 
 
-@st.dialog(title="Chat with Page", width="large")
-def chat_dialog(current_page_index, total_pages, pdf_stream):
-    col1, col2, col3 = st.columns([1, 1, 1], vertical_alignment="bottom")
-    with col1:
-        start_page = st.number_input(
-            "Start Page",
-            min_value=1,
-            max_value=total_pages,
-            value=current_page_index + 1,
-            step=1,
-            key="chat_start_page",
-        )
-    with col2:
-        end_page = st.number_input(
-            "End Page",
-            min_value=1,
-            max_value=total_pages,
-            value=current_page_index + 1,
-            step=1,
-            key="chat_end_page",
-        )
-    with col3:
-        clear_clicked = st.button("Clear Chat History", width="stretch")
+def chat_ui(selected_indices, pdf_stream, key_prefix):
+    clear_clicked = st.button(
+        "Clear Chat History", width="stretch", key=f"{key_prefix}_clear"
+    )
 
-    if start_page is None or end_page is None:
-        return
-
-    start_page = int(start_page)
-    end_page = int(end_page)
-
-    if start_page > end_page:
-        st.error("Start page must be less than or equal to end page.")
-        return
-
-    selected_indices = list(range(start_page - 1, end_page))
     ensure_pages_loaded(pdf_stream, selected_indices)
 
     context_text = ""
@@ -252,7 +255,9 @@ def chat_dialog(current_page_index, total_pages, pdf_stream):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if prompt := st.chat_input("Ask something about these pages..."):
+    if prompt := st.chat_input(
+        "Ask something about these pages...", key=f"{key_prefix}_input"
+    ):
         st.session_state.chat_histories[chat_key].append(
             {"role": "user", "content": prompt}
         )
@@ -307,7 +312,7 @@ def summarize_page(
     if detail_level == "Brief":
         instruction = "provide a summary focused on core points"
     elif detail_level == "Detailed":
-        instruction = "provide a detailed summary"
+        instruction = "provide a highly detailed, comprehensive and exhaustive summary"
     else:
         instruction = "provide an organized summary"
 
@@ -446,9 +451,6 @@ def main():
 
         if st.sidebar.button("Summarize Pages", width="stretch"):
             summary_dialog(current_page_index, total_pages, uploaded_file.getvalue())
-
-        if st.sidebar.button("Chat with AI", width="stretch"):
-            chat_dialog(current_page_index, total_pages, uploaded_file.getvalue())
 
         # Check if all pages are loaded
         all_pages_loaded = len(st.session_state.pages) == total_pages

@@ -65,7 +65,7 @@ def chapter_summary_dialog(total_pages, pdf_stream):
     end_page = total_pages
     for i in range(selected_idx + 1, len(toc)):
         if toc[i][0] <= level:
-            end_page = toc[i][2] - 1
+            end_page = toc[i][2]
             break
 
     if start_page > end_page:
@@ -96,8 +96,13 @@ def chapter_summary_dialog(total_pages, pdf_stream):
             page_text = st.session_state.pages.get(idx, {}).get("text", "")
             full_text += f"{page_text}\n\n"
 
+        chapter_title = toc[selected_idx][1]
+        context_info = f"{chapter_title} (Pages {start_page}-{end_page})"
+
         with st.spinner("Summarizing chapter..."):
-            summary = summarize_page(full_text, detail_level, translate_to_korean)
+            summary = summarize_page(
+                full_text, detail_level, translate_to_korean, context_info=context_info
+            )
             if summary:
                 st.markdown(summary)
 
@@ -292,7 +297,9 @@ def toc_dialog():
                 st.rerun()
 
 
-def summarize_page(text, detail_level="Default", translate_to_korean=False):
+def summarize_page(
+    text, detail_level="Default", translate_to_korean=False, context_info=None
+):
     client = get_gemini_client()
     if not client:
         return None
@@ -304,10 +311,20 @@ def summarize_page(text, detail_level="Default", translate_to_korean=False):
     else:
         instruction = "provide an organized summary"
 
+    context_prompt = ""
+    if context_info:
+        context_prompt = (
+            f"This text contains the chapter/section: '{context_info}'. "
+            "Please focus strictly on the content belonging to this specific chapter, "
+            "and ignore any preceding or succeeding chapter text that might be included in the context. "
+        )
+
     if translate_to_korean:
-        prompt = f"Analyze the following text and {instruction} in Korean: "
+        prompt = (
+            f"{context_prompt}Analyze the following text and {instruction} in Korean: "
+        )
     else:
-        prompt = f"Analyze the following text and {instruction}: "
+        prompt = f"{context_prompt}Analyze the following text and {instruction}: "
 
     try:
         response = client.models.generate_content(
